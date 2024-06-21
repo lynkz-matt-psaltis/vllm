@@ -209,7 +209,6 @@ class DeepseekV2Attention(nn.Module):
         rope_theta: float = 10000,
         rope_scaling: Optional[Dict[str, Any]] = None,
         max_position_embeddings: int = 8192,
-        cache_config: Optional[CacheConfig] = None,
         quant_config: Optional[QuantizationConfig] = None,
         layer_idx=None,
     ) -> None:
@@ -463,10 +462,12 @@ class DeepseekV2ForCausalLM(nn.Module):
     def __init__(
         self,
         config: PretrainedConfig,
+        cache_config: Optional[CacheConfig] = None,
         quant_config: Optional[QuantizationConfig] = None,
     ) -> None:
         super().__init__()
         self.config = config
+        self.cache_config = cache_config
         self.quant_config = quant_config
         self.model = DeepseekV2Model(config, quant_config)
         self.lm_head = ParallelLMHead(config.vocab_size, config.hidden_size)
