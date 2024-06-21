@@ -195,7 +195,6 @@ def yarn_get_mscale(scale: float = 1, mscale: float = 1) -> float:
 
 
 class DeepseekV2Attention(nn.Module):
-
     def __init__(
         self,
         config: PretrainedConfig,
@@ -230,6 +229,7 @@ class DeepseekV2Attention(nn.Module):
         self.scaling = self.qk_head_dim**-0.5
         self.rope_theta = rope_theta
         self.max_position_embeddings = max_position_embeddings
+        self.head_size = hidden_size // num_heads
 
         self.q_proj = ReplicatedLinear(
             self.hidden_size, self.num_heads * self.qk_head_dim, bias=False
@@ -263,8 +263,8 @@ class DeepseekV2Attention(nn.Module):
                 self.softmax_scale = self.softmax_scale * mscale * mscale
 
         self.attn = Attention(
-            self.num_heads,
-            self.v_head_dim,
+            self.num_local_heads,
+            self.head_size,
             self.scaling,
             num_kv_heads=self.num_heads,
             cache_config=cache_config,
@@ -343,18 +343,18 @@ class DeepseekV2Attention(nn.Module):
         k[..., : self.qk_nope_head_dim] = k_nope
         k[..., self.qk_nope_head_dim :] = k_pe
 
-        q = torch.nn.functional.pad(q, [0, 256 - self.qk_head_dim], value=0).view(
-            -1, self.num_local_heads * 256
-        )
-        k = torch.nn.functional.pad(k, [0, 256 - self.qk_head_dim], value=0).view(
-            -1, self.num_local_heads * 256
-        )
-        v = torch.nn.functional.pad(v, [0, 256 - self.v_head_dim], value=0).view(
-            -1, self.num_local_heads * 256
-        )
+        q = torch.nn.functional.pad(
+            q, [0, self.head_size - self.qk_head_dim], value=0
+        ).view(-1, self.num_local_heads * self.head_size)
+        k = torch.nn.functional.pad(
+            k, [0, self.head_size - self.qk_head_dim], value=0
+        ).view(-1, self.num_local_heads * self.head_size)
+        v = torch.nn.functional.pad(
+            v, [0, self.head_size - self.v_head_dim], value=0
+        ).view(-1, self.num_local_heads * self.head_size)
 
         attn_output = self.attn(q, k, v, kv_cache, attn_metadata)
-        attn_output = attn_output.view(-1, self.num_local_heads, 256)[
+        attn_output = attn_output.view(-1, self.num_local_heads, self.head_size)[
             ..., : self.v_head_dim
         ].reshape(-1, self.num_local_heads * self.v_head_dim)
         output, _ = self.o_proj(attn_output)
