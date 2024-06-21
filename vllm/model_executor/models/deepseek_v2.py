@@ -272,7 +272,6 @@ class DeepseekV2Attention(nn.Module):
                 mscale = yarn_get_mscale(scaling_factor, mscale_all_dim)
                 self.softmax_scale = self.softmax_scale * mscale * mscale
 
-
     def _init_rope(self):
         if self.config.rope_scaling is None:
             self.rotary_emb = get_rope(
@@ -283,6 +282,8 @@ class DeepseekV2Attention(nn.Module):
         else:
             scaling_type = self.config.rope_scaling["type"]
             scaling_factor = self.config.rope_scaling["factor"]
+
+            # Handle different scaling types
             if scaling_type == "linear":
                 self.rotary_emb = get_rope(
                     self.qk_rope_head_dim,
@@ -306,16 +307,16 @@ class DeepseekV2Attention(nn.Module):
                 mscale = self.config.rope_scaling.get("mscale", 1)
                 mscale_all_dim = self.config.rope_scaling.get("mscale_all_dim", 0)
 
+                # Calculate the necessary factors for yarn scaling here if needed
+                # This is an example of how you might calculate it:
+                yarn_scale_factor = scaling_factor * (mscale + mscale_all_dim)
+
+                # Use get_rope with parameters that it supports directly
                 self.rotary_emb = get_rope(
                     self.qk_rope_head_dim,
                     max_position=self.max_position_embeddings,
                     base=self.rope_theta,
-                    yarn_scaling_factor=scaling_factor,
-                    original_max_position_embeddings=original_max_position_embeddings,
-                    beta_fast=beta_fast,
-                    beta_slow=beta_slow,
-                    mscale=mscale,
-                    mscale_all_dim=mscale_all_dim,
+                    yarn_scale_factor=yarn_scale_factor,
                 )
             else:
                 raise ValueError(f"Unknown RoPE scaling type {scaling_type}")
