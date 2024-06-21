@@ -282,6 +282,9 @@ class ModelConfig:
         return self.hf_text_config.hidden_size
 
     def get_head_size(self) -> int:
+        if hasattr(self.hf_text_config, "model_type") and self.hf_text_config.model_type=='deepseek_v2':
+            # FlashAttention suports only 32, 64, 128, 256, we need pading 192 to 256
+            return 256
         if hasattr(self.hf_text_config, "head_dim"):
             return self.hf_text_config.head_dim
         # FIXME(woosuk): This may not be true for all models.
@@ -294,6 +297,8 @@ class ModelConfig:
         # NOTE: for falcon, when new_decoder_architecture is True, the
         # multi_query flag is ignored and we use n_head_kv for the number of
         # KV heads.
+        if hasattr(self.hf_text_config, "model_type") and self.hf_text_config.model_type=='deepseek_v2':
+            return self.hf_text_config.num_attention_heads
         falcon_model_types = ["falcon", "RefinedWeb", "RefinedWebModel"]
         new_decoder_arch_falcon = (
             self.hf_config.model_type in falcon_model_types
