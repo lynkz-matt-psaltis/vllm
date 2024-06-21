@@ -214,6 +214,7 @@ class DeepseekV2Attention(nn.Module):
         layer_idx=None,
     ) -> None:
         super().__init__()
+        self.config = config
         self.layer_idx = layer_idx
         self.hidden_size = hidden_size
         self.qk_nope_head_dim = qk_nope_head_dim
@@ -230,60 +231,94 @@ class DeepseekV2Attention(nn.Module):
         self.rope_theta = rope_theta
         self.max_position_embeddings = max_position_embeddings
 
-        self.q_a_proj = ReplicatedLinear(
-            self.hidden_size, self.q_lora_rank, bias=False, quant_config=quant_config
-        )
-        self.q_a_layernorm = RMSNorm(self.q_lora_rank, eps=config.rms_norm_eps)
-        self.q_b_proj = ColumnParallelLinear(
-            q_lora_rank,
-            self.num_heads * self.qk_head_dim,
-            bias=False,
-            quant_config=quant_config,
-        )
+        if self.q_lora_rank is None:
+            self.q_proj = ReplicatedLinear(
+                self.hidden_size, self.num_heads * self.qk_head_dim, bias=False
+            )
+        else:
+            self.q_a_proj = ReplicatedLinear(
+                self.hidden_size, config.q_lora_rank, bias=config.attention_bias
+            )
+            self.q_a_layernorm = RMSNorm(config.q_lora_rank)
+            self.q_b_proj = ReplicatedLinear(
+                config.q_lora_rank, self.num_heads * self.qk_head_dim, bias=False
+            )
+
         self.kv_a_proj_with_mqa = ReplicatedLinear(
             self.hidden_size,
-            self.kv_lora_rank + self.qk_rope_head_dim,
-            bias=False,
-            quant_config=quant_config,
+            config.kv_lora_rank + config.qk_rope_head_dim,
+            bias=config.attention_bias,
         )
-        self.kv_a_layernorm = RMSNorm(self.kv_lora_rank, eps=config.rms_norm_eps)
-        self.kv_b_proj = ColumnParallelLinear(
-            self.kv_lora_rank,
-            self.num_heads * (self.qk_nope_head_dim + self.v_head_dim),
+        self.kv_a_layernorm = RMSNorm(config.kv_lora_rank)
+        self.kv_b_proj = ReplicatedLinear(
+            config.kv_lora_rank,
+            self.num_heads
+            * (self.qk_head_dim - self.qk_rope_head_dim + self.v_head_dim),
             bias=False,
-            quant_config=quant_config,
         )
-        # O projection.
-        self.o_proj = RowParallelLinear(
+
+        self.o_proj = ReplicatedLinear(
             self.num_heads * self.v_head_dim,
             self.hidden_size,
-            bias=False,
-            quant_config=quant_config,
+            bias=config.attention_bias,
         )
-        self.rotary_emb = get_rope(
-            qk_rope_head_dim,
-            rotary_dim=qk_rope_head_dim,
-            max_position=max_position_embeddings,
-            base=rope_theta,
-            rope_scaling=rope_scaling,
-            is_neox_style=False,
-        )
+        self._init_rope()
 
-        if rope_scaling:
-            rope_scaling["type"] = "deepseek_yarn"
-            mscale_all_dim = rope_scaling.get("mscale_all_dim", False)
-            scaling_factor = rope_scaling["factor"]
-            mscale = yarn_get_mscale(scaling_factor, float(mscale_all_dim))
-            self.scaling = self.scaling * mscale * mscale
+        self.softmax_scale = self.qk_head_dim ** (-0.5)
+        if self.config.rope_scaling is not None:
+            mscale_all_dim = self.config.rope_scaling.get("mscale_all_dim", 0)
+            scaling_factor = self.config.rope_scaling["factor"]
+            if mscale_all_dim:
+                mscale = yarn_get_mscale(scaling_factor, mscale_all_dim)
+                self.softmax_scale = self.softmax_scale * mscale * mscale
 
-        self.attn = Attention(
-            self.num_heads,
-            self.head_dim,
-            self.scaling,
-            num_kv_heads=self.num_kv_heads,
-            cache_config=cache_config,
-            quant_config=quant_config,
-        )
+
+    def _init_rope(self):
+        if self.config.rope_scaling is None:
+            self.rotary_emb = get_rope(
+                self.qk_rope_head_dim,
+                max_position=self.max_position_embeddings,
+                base=self.rope_theta,
+            )
+        else:
+            scaling_type = self.config.rope_scaling["type"]
+            scaling_factor = self.config.rope_scaling["factor"]
+            if scaling_type == "linear":
+                self.rotary_emb = get_rope(
+                    self.qk_rope_head_dim,
+                    max_position=self.max_position_embeddings,
+                    base=self.rope_theta,
+                    linear_scaling=scaling_factor,
+                )
+            elif scaling_type == "dynamic":
+                self.rotary_emb = get_rope(
+                    self.qk_rope_head_dim,
+                    max_position=self.max_position_embeddings,
+                    base=self.rope_theta,
+                    dynamic_ntk_scaling=scaling_factor,
+                )
+            elif scaling_type == "yarn":
+                original_max_position_embeddings = self.config.rope_scaling.get(
+                    "original_max_position_embeddings", 4096
+                )
+                beta_fast = self.config.rope_scaling.get("beta_fast", 32)
+                beta_slow = self.config.rope_scaling.get("beta_slow", 1)
+                mscale = self.config.rope_scaling.get("mscale", 1)
+                mscale_all_dim = self.config.rope_scaling.get("mscale_all_dim", 0)
+
+                self.rotary_emb = get_rope(
+                    self.qk_rope_head_dim,
+                    max_position=self.max_position_embeddings,
+                    base=self.rope_theta,
+                    yarn_scaling_factor=scaling_factor,
+                    original_max_position_embeddings=original_max_position_embeddings,
+                    beta_fast=beta_fast,
+                    beta_slow=beta_slow,
+                    mscale=mscale,
+                    mscale_all_dim=mscale_all_dim,
+                )
+            else:
+                raise ValueError(f"Unknown RoPE scaling type {scaling_type}")
 
     def forward(
         self,
