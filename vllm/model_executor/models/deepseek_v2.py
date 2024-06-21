@@ -266,7 +266,7 @@ class DeepseekV2Attention(nn.Module):
             self.num_heads,
             self.v_head_dim,
             self.scaling,
-            num_kv_heads=self.num_kv_heads,
+            num_kv_heads=self.num_heads,
             cache_config=cache_config,
             quant_config=quant_config,
         )
