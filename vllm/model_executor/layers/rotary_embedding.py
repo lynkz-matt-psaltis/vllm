@@ -686,6 +686,7 @@ class DeepseekScalingRotaryEmbedding(RotaryEmbedding):
         base: int,
         is_neox_style: bool,
         scaling_factor: float,
+        dtype: torch.dtype,
         *,
         extrapolation_factor: float = 1,
         attn_factor: float = 1,
@@ -693,7 +694,6 @@ class DeepseekScalingRotaryEmbedding(RotaryEmbedding):
         beta_slow: int = 1,
         mscale: float = 1,
         mscale_all_dim: float = 0,
-        dtype: torch.dtype,
     ) -> None:
         self.scaling_factor = scaling_factor
         self.extrapolation_factor = extrapolation_factor
@@ -900,6 +900,7 @@ def get_rope(
                 base,
                 is_neox_style,
                 scaling_factor,
+                dtype,
                 **extra_kwargs,
             )
 
