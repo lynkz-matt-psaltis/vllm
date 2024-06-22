@@ -208,6 +208,7 @@ class DeepseekV2Attention(nn.Module):
         rope_theta: float = 10000,
         rope_scaling: Optional[Dict[str, Any]] = None,
         max_position_embeddings: int = 8192,
+        cache_config: Optional[Dict[str, Any]] = None,
         quant_config: Optional[Dict[str, Any]] = None,
         layer_idx=None,
     ) -> None:
@@ -289,10 +290,19 @@ class DeepseekV2Attention(nn.Module):
 
         self.attn = Attention(
             self.num_local_heads,
-            self.head_size,
+            self.v_head_dim,
             self.scaling,
-            num_kv_heads=self.num_local_heads,
+            num_kv_heads=self.num_kv_heads,
+            cache_config=self.cache_config,
+            quant_config=quant_config,
         )
+
+        # self.attn = Attention(
+        #     self.num_local_heads,
+        #     self.head_size,
+        #     self.scaling,
+        #     num_kv_heads=self.num_local_heads,
+        # )
 
     def forward(
         self,
@@ -377,6 +387,7 @@ class DeepseekV2DecoderLayer(nn.Module):
         self,
         config: PretrainedConfig,
         layer_idx: int,
+        cache_config: Optional[CacheConfig] = None,
         quant_config: Optional[QuantizationConfig] = None,
     ) -> None:
         super().__init__()
@@ -396,6 +407,7 @@ class DeepseekV2DecoderLayer(nn.Module):
             rope_theta=rope_theta,
             rope_scaling=rope_scaling,
             max_position_embeddings=max_position_embeddings,
+            cache_config=cache_config,
             quant_config=quant_config,
             layer_idx=layer_idx,
         )
@@ -451,6 +463,7 @@ class DeepseekV2Model(nn.Module):
     def __init__(
         self,
         config: PretrainedConfig,
+        cache_config: Optional[CacheConfig] = None,
         quant_config: Optional[QuantizationConfig] = None,
     ) -> None:
         super().__init__()
@@ -463,7 +476,7 @@ class DeepseekV2Model(nn.Module):
         )
         self.layers = nn.ModuleList(
             [
-                DeepseekV2DecoderLayer(config, layer_idx, quant_config=quant_config)
+                DeepseekV2DecoderLayer(config, layer_idx, cache_config=cache_config, quant_config=quant_config)
                 for layer_idx in range(config.num_hidden_layers)
             ]
         )
@@ -499,7 +512,7 @@ class DeepseekV2ForCausalLM(nn.Module):
         self.config = config
         self.cache_config = cache_config
         self.quant_config = quant_config
-        self.model = DeepseekV2Model(config, quant_config)
+        self.model = DeepseekV2Model(config, cache_config=cache_config, quant_config=quant_config)
         self.lm_head = ParallelLMHead(config.vocab_size, config.hidden_size)
         self.logits_processor = LogitsProcessor(config.vocab_size)
         self.sampler = Sampler()
