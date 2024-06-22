@@ -195,7 +195,6 @@ def yarn_get_mscale(scale: float = 1, mscale: float = 1) -> float:
 
 
 class DeepseekV2Attention(nn.Module):
-
     def __init__(
         self,
         config: PretrainedConfig,
@@ -302,6 +301,14 @@ class DeepseekV2Attention(nn.Module):
         kv_cache: torch.Tensor,
         attn_metadata: AttentionMetadata,
     ) -> torch.Tensor:
+        # Ensure shapes are correct
+        num_tokens, hidden_dim = hidden_states.shape
+        if hidden_dim != self.hidden_size:
+            raise ValueError(
+                f"Expected hidden_dim={self.hidden_size}, got {hidden_dim}"
+            )
+
+        hidden_states = hidden_states.view(-1, hidden_dim)
         if self.q_lora_rank is not None:
             q = self.q_a_proj(hidden_states)[0]
             q = self.q_a_layernorm(q)
@@ -310,6 +317,7 @@ class DeepseekV2Attention(nn.Module):
             q = self.q_proj(hidden_states)[0].view(
                 -1, self.num_local_heads, self.qk_head_dim
             )
+
         q_nope, q_pe = q.split([self.qk_nope_head_dim, self.qk_rope_head_dim], dim=-1)
         latent_cache = self.kv_a_proj_with_mqa(hidden_states)[0]
         kv_a, _ = latent_cache.split([self.kv_lora_rank, self.qk_rope_head_dim], dim=-1)
@@ -333,6 +341,13 @@ class DeepseekV2Attention(nn.Module):
         v = torch.nn.functional.pad(
             v, [0, self.head_size - self.v_head_dim], value=0
         ).view(-1, self.num_local_heads * self.head_size)
+
+        # Ensure kv_cache shape is correct
+        if kv_cache.shape[1] != self.num_local_heads:
+            raise ValueError(
+                f"Expected kv_cache.shape[1]={self.num_local_heads}, got {kv_cache.shape[1]}"
+            )
+
         attn_output = self.attn(q, k, v, kv_cache, attn_metadata)
         attn_output = attn_output.view(-1, self.num_local_heads, self.head_size)[
             ..., : self.v_head_dim
