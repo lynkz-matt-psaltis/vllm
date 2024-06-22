@@ -327,6 +327,7 @@ class DeepseekV2Attention(nn.Module):
         kv = kv.view(-1, self.num_local_heads, self.qk_nope_head_dim + self.v_head_dim)
         k_nope, v = kv.split([self.qk_nope_head_dim, self.v_head_dim], dim=-1)
         k_pe = latent_cache[:, :, self.kv_lora_rank :]
+
         q_pe, k_pe = self.rotary_emb(positions, q_pe, k_pe)
         q[..., self.qk_nope_head_dim :] = q_pe
         k = torch.empty_like(q)
@@ -349,7 +350,6 @@ class DeepseekV2Attention(nn.Module):
                 device=k.device,
                 dtype=q.dtype,
             )
-
         if kv_cache.shape[1] != self.num_local_heads:
             raise ValueError(
                 f"Expected kv_cache.shape[1]={self.num_local_heads}, got {kv_cache.shape[1]}"
