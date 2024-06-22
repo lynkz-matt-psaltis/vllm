@@ -348,7 +348,10 @@ class DeepseekV2Attention(nn.Module):
         ).view(-1, self.num_local_heads * self.head_size)
 
         # Check kv_cache
-        if kv_cache is not None and kv_cache.shape[1] != self.num_local_heads:
+        if kv_cache is None:
+            kv_cache = torch.zeros_like(k)  # Initialize kv_cache with zeros
+
+        if kv_cache.shape[1] != self.num_local_heads:
             raise ValueError(
                 f"Expected kv_cache.shape[1]={self.num_local_heads}, got {kv_cache.shape[1]}"
             )
@@ -358,7 +361,7 @@ class DeepseekV2Attention(nn.Module):
         except Exception as e:
             print(f"Error during attention computation: {e}")
             print(
-                f"Shapes - q: {q.shape}, k: {k.shape}, v: {v.shape}, kv_cache: {kv_cache.shape if kv_cache is not None else 'None'}"
+                f"Shapes - q: {q.shape}, k: {k.shape}, v: {v.shape}, kv_cache: {kv_cache.shape}"
             )
             raise
 
