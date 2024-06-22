@@ -281,7 +281,7 @@ class FlashAttentionImpl(AttentionImpl):
 
         num_tokens, hidden_size = query.shape
         # Reshape the query, key, and value tensors.
-        print("query", self.num_heads, self.head_size, query)
+        print("query", self.num_heads, self.head_size, query.shape)
         query = query.view(-1, self.num_heads, self.head_size)
         key = key.view(-1, self.num_kv_heads, self.head_size)
         value = value.view(-1, self.num_kv_heads, self.head_size)
