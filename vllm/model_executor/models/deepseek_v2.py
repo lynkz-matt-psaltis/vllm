@@ -223,7 +223,8 @@ class DeepseekV2Attention(nn.Module):
         self.q_lora_rank = q_lora_rank
         self.kv_lora_rank = kv_lora_rank
         tp_size = get_tensor_model_parallel_world_size()
-        self.num_heads = self.total_num_heads // tp_size
+        assert num_heads % tp_size == 0
+        self.total_num_heads = num_heads // tp_size
         self.total_num_kv_heads = num_kv_heads
         if self.total_num_kv_heads >= tp_size:
             # Number of KV heads is greater than TP size, so we partition
@@ -233,7 +234,6 @@ class DeepseekV2Attention(nn.Module):
             # Number of KV heads is less than TP size, so we replicate
             # the KV heads across multiple tensor parallel GPUs.
             assert tp_size % self.total_num_kv_heads == 0
-        assert num_heads % tp_size == 0
         self.num_local_heads = num_heads // tp_size
         self.scaling = self.qk_head_dim**-0.5
         self.rope_theta = rope_theta
@@ -251,14 +251,14 @@ class DeepseekV2Attention(nn.Module):
             self.q_a_layernorm = RMSNorm(self.q_lora_rank, eps=config.rms_norm_eps)
             self.q_b_proj = ColumnParallelLinear(
                 q_lora_rank,
-                self.num_heads * self.qk_head_dim,
+                self.total_num_heads * self.qk_head_dim,
                 bias=False,
                 quant_config=quant_config,
             )
         else:
             self.q_proj = ColumnParallelLinear(
                 self.hidden_size,
-                self.num_heads * self.qk_head_dim,
+                self.total_num_heads * self.qk_head_dim,
                 bias=False,
                 quant_config=quant_config,
             )
@@ -272,13 +272,13 @@ class DeepseekV2Attention(nn.Module):
         self.kv_a_layernorm = RMSNorm(self.kv_lora_rank, eps=config.rms_norm_eps)
         self.kv_b_proj = ColumnParallelLinear(
             self.kv_lora_rank,
-            self.num_heads * (self.qk_nope_head_dim + self.v_head_dim),
+            self.total_num_heads * (self.qk_nope_head_dim + self.v_head_dim),
             bias=False,
             quant_config=quant_config,
         )
         # O projection.
         self.o_proj = RowParallelLinear(
-            self.num_heads * self.v_head_dim,
+            self.total_num_heads * self.v_head_dim,
             self.hidden_size,
             bias=False,
             quant_config=quant_config,
