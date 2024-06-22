@@ -200,6 +200,7 @@ class DeepseekV2Attention(nn.Module):
         config,
         hidden_size: int,
         num_heads: int,
+        num_kv_heads: int,
         qk_nope_head_dim: int,
         qk_rope_head_dim: int,
         v_head_dim: int,
@@ -221,14 +222,24 @@ class DeepseekV2Attention(nn.Module):
         self.v_head_dim = v_head_dim
         self.q_lora_rank = q_lora_rank
         self.kv_lora_rank = kv_lora_rank
-        self.num_heads = num_heads
         tp_size = get_tensor_model_parallel_world_size()
+        self.num_heads = self.total_num_heads // tp_size
+        self.total_num_kv_heads = num_kv_heads
+        if self.total_num_kv_heads >= tp_size:
+            # Number of KV heads is greater than TP size, so we partition
+            # the KV heads across multiple tensor parallel GPUs.
+            assert self.total_num_kv_heads % tp_size == 0
+        else:
+            # Number of KV heads is less than TP size, so we replicate
+            # the KV heads across multiple tensor parallel GPUs.
+            assert tp_size % self.total_num_kv_heads == 0
         assert num_heads % tp_size == 0
         self.num_local_heads = num_heads // tp_size
         self.scaling = self.qk_head_dim**-0.5
         self.rope_theta = rope_theta
         self.max_position_embeddings = max_position_embeddings
         self.head_size = hidden_size // num_heads
+        self.num_kv_heads = max(1, self.total_num_kv_heads // tp_size)
 
         if self.q_lora_rank is not None:
             self.q_a_proj = ReplicatedLinear(
@@ -399,6 +410,7 @@ class DeepseekV2DecoderLayer(nn.Module):
             config=config,
             hidden_size=self.hidden_size,
             num_heads=config.num_attention_heads,
+            num_kv_heads=config.num_key_value_heads,
             qk_nope_head_dim=config.qk_nope_head_dim,
             qk_rope_head_dim=config.qk_rope_head_dim,
             v_head_dim=config.v_head_dim,
@@ -476,7 +488,12 @@ class DeepseekV2Model(nn.Module):
         )
         self.layers = nn.ModuleList(
             [
-                DeepseekV2DecoderLayer(config, layer_idx, cache_config=cache_config, quant_config=quant_config)
+                DeepseekV2DecoderLayer(
+                    config,
+                    layer_idx,
+                    cache_config=cache_config,
+                    quant_config=quant_config,
+                )
                 for layer_idx in range(config.num_hidden_layers)
             ]
         )
@@ -512,7 +529,9 @@ class DeepseekV2ForCausalLM(nn.Module):
         self.config = config
         self.cache_config = cache_config
         self.quant_config = quant_config
-        self.model = DeepseekV2Model(config, cache_config=cache_config, quant_config=quant_config)
+        self.model = DeepseekV2Model(
+            config, cache_config=cache_config, quant_config=quant_config
+        )
         self.lm_head = ParallelLMHead(config.vocab_size, config.hidden_size)
         self.logits_processor = LogitsProcessor(config.vocab_size)
         self.sampler = Sampler()
