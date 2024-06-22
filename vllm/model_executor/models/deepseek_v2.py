@@ -194,15 +194,10 @@ def yarn_get_mscale(scale: float = 1, mscale: float = 1) -> float:
     return 0.1 * mscale * math.log(scale) + 1.0
 
 
-import torch
-from torch import nn
-from typing import Any, Dict, Optional
-
-
 class DeepseekV2Attention(nn.Module):
     def __init__(
         self,
-        config: PretrainedConfig,
+        config,
         hidden_size: int,
         num_heads: int,
         qk_nope_head_dim: int,
@@ -213,7 +208,7 @@ class DeepseekV2Attention(nn.Module):
         rope_theta: float = 10000,
         rope_scaling: Optional[Dict[str, Any]] = None,
         max_position_embeddings: int = 8192,
-        quant_config: Optional[QuantizationConfig] = None,
+        quant_config: Optional[Dict[str, Any]] = None,
         layer_idx=None,
     ) -> None:
         super().__init__()
@@ -304,7 +299,7 @@ class DeepseekV2Attention(nn.Module):
         positions: torch.Tensor,
         hidden_states: torch.Tensor,
         kv_cache: Optional[torch.Tensor],
-        attn_metadata: AttentionMetadata,
+        attn_metadata: Dict[str, Any],
     ) -> torch.Tensor:
         # Ensure shapes are correct
         num_tokens, hidden_dim = hidden_states.shape
@@ -349,7 +344,9 @@ class DeepseekV2Attention(nn.Module):
 
         # Check kv_cache
         if kv_cache is None:
-            kv_cache = torch.zeros_like(k)  # Initialize kv_cache with zeros
+            kv_cache = torch.zeros(
+                (num_tokens, self.num_local_heads, self.head_size), device=k.device
+            )  # Initialize kv_cache with correct shape
 
         if kv_cache.shape[1] != self.num_local_heads:
             raise ValueError(
