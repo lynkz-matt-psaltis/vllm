@@ -1,4 +1,5 @@
 """Attention layer with FlashAttention."""
+
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Type
 
@@ -6,8 +7,11 @@ import torch
 from vllm_flash_attn import flash_attn_varlen_func, flash_attn_with_kvcache
 
 from vllm import _custom_ops as ops
-from vllm.attention.backends.abstract import (AttentionBackend, AttentionImpl,
-                                              AttentionMetadata)
+from vllm.attention.backends.abstract import (
+    AttentionBackend,
+    AttentionImpl,
+    AttentionMetadata,
+)
 
 
 class FlashAttentionBackend(AttentionBackend):
@@ -72,6 +76,7 @@ class FlashAttentionMetadata(AttentionMetadata):
     dynamically, it should be stored in tensor. The tensor has to be
     updated from `CUDAGraphRunner.forward` API.
     """
+
     # (batch_size,). The sequence length per sequence. Sequence length means
     # the computed tokens + new tokens None if it is a decoding.
     seq_lens: Optional[List[int]]
@@ -141,16 +146,16 @@ class FlashAttentionMetadata(AttentionMetadata):
             num_prefills=self.num_prefills,
             num_prefill_tokens=self.num_prefill_tokens,
             num_decode_tokens=0,
-            slot_mapping=self.slot_mapping[:self.num_prefill_tokens],
-            seq_lens=self.seq_lens[:self.num_prefills],
-            seq_lens_tensor=self.seq_lens_tensor[:self.num_prefills],
+            slot_mapping=self.slot_mapping[: self.num_prefill_tokens],
+            seq_lens=self.seq_lens[: self.num_prefills],
+            seq_lens_tensor=self.seq_lens_tensor[: self.num_prefills],
             max_query_len=self.max_query_len,
             max_prefill_seq_len=self.max_prefill_seq_len,
             max_decode_seq_len=0,
-            query_start_loc=self.query_start_loc[:self.num_prefills + 1],
-            seq_start_loc=self.seq_start_loc[:self.num_prefills + 1],
-            context_lens_tensor=self.context_lens_tensor[:self.num_prefills],
-            block_tables=self.block_tables[:self.num_prefills],
+            query_start_loc=self.query_start_loc[: self.num_prefills + 1],
+            seq_start_loc=self.seq_start_loc[: self.num_prefills + 1],
+            context_lens_tensor=self.context_lens_tensor[: self.num_prefills],
+            block_tables=self.block_tables[: self.num_prefills],
             use_cuda_graph=False,
         )
         return self._cached_prefill_metadata
@@ -169,16 +174,16 @@ class FlashAttentionMetadata(AttentionMetadata):
             num_prefills=0,
             num_prefill_tokens=0,
             num_decode_tokens=self.num_decode_tokens,
-            slot_mapping=self.slot_mapping[self.num_prefill_tokens:],
+            slot_mapping=self.slot_mapping[self.num_prefill_tokens :],
             seq_lens=None,
-            seq_lens_tensor=self.seq_lens_tensor[self.num_prefills:],
+            seq_lens_tensor=self.seq_lens_tensor[self.num_prefills :],
             max_query_len=None,
             max_prefill_seq_len=0,
             max_decode_seq_len=self.max_decode_seq_len,
             query_start_loc=None,
             seq_start_loc=None,
             context_lens_tensor=None,
-            block_tables=self.block_tables[self.num_prefills:],
+            block_tables=self.block_tables[self.num_prefills :],
             use_cuda_graph=self.use_cuda_graph,
         )
         return self._cached_decode_metadata
@@ -187,11 +192,11 @@ class FlashAttentionMetadata(AttentionMetadata):
 class FlashAttentionImpl(AttentionImpl):
     """
     If the input tensors contain prompt tokens, the layout is as follows:
-    |<--------------- num_prefill_tokens ----------------->|	
+    |<--------------- num_prefill_tokens ----------------->|
     |<--prefill_0-->|<--prefill_1-->|...|<--prefill_N-1--->|
 
-    Otherwise, the layout is as follows:	
-    |<----------------- num_decode_tokens ------------------>|	
+    Otherwise, the layout is as follows:
+    |<----------------- num_decode_tokens ------------------>|
     |<--decode_0-->|..........|<--decode_M-1-->|<--padding-->|
 
     Generation tokens can contain padding when cuda-graph is used.
@@ -222,7 +227,8 @@ class FlashAttentionImpl(AttentionImpl):
         blocksparse_params: Optional[Dict[str, Any]] = None,
     ) -> None:
         assert blocksparse_params is None, ValueError(
-            "FlashAttention does not support block-sparse attention.")
+            "FlashAttention does not support block-sparse attention."
+        )
         self.num_heads = num_heads
         self.head_size = head_size
         self.scale = float(scale)
@@ -230,8 +236,9 @@ class FlashAttentionImpl(AttentionImpl):
         if alibi_slopes is not None:
             alibi_slopes = torch.tensor(alibi_slopes, dtype=torch.float32)
         self.alibi_slopes = alibi_slopes
-        self.sliding_window = ((sliding_window, sliding_window)
-                               if sliding_window is not None else (-1, -1))
+        self.sliding_window = (
+            (sliding_window, sliding_window) if sliding_window is not None else (-1, -1)
+        )
         self.kv_cache_dtype = kv_cache_dtype
 
         assert self.num_heads % self.num_kv_heads == 0
@@ -240,14 +247,14 @@ class FlashAttentionImpl(AttentionImpl):
         if sliding_window is not None:
             # NOTE(woosuk): flash-attn's sliding window does not work with
             # paged KV cache.
-            raise ValueError(
-                "Sliding window is not supported in FlashAttention.")
+            raise ValueError("Sliding window is not supported in FlashAttention.")
 
         support_head_sizes = FlashAttentionBackend.get_supported_head_sizes()
         if head_size not in support_head_sizes:
             raise ValueError(
                 f"Head size {head_size} is not supported by FlashAttention. "
-                f"Supported head sizes are: {support_head_sizes}.")
+                f"Supported head sizes are: {support_head_sizes}."
+            )
 
     def forward(
         self,
@@ -274,6 +281,7 @@ class FlashAttentionImpl(AttentionImpl):
 
         num_tokens, hidden_size = query.shape
         # Reshape the query, key, and value tensors.
+        print("query", self.num_heads, self.head_size)
         query = query.view(-1, self.num_heads, self.head_size)
         key = key.view(-1, self.num_kv_heads, self.head_size)
         value = value.view(-1, self.num_kv_heads, self.head_size)
@@ -312,8 +320,11 @@ class FlashAttentionImpl(AttentionImpl):
 
         if prefill_meta := attn_metadata.prefill_metadata:
             # Prompt run.
-            if (kv_cache is None or prefill_meta.block_tables is None
-                    or prefill_meta.block_tables.numel() == 0):
+            if (
+                kv_cache is None
+                or prefill_meta.block_tables is None
+                or prefill_meta.block_tables.numel() == 0
+            ):
                 # normal attention
                 # When block_tables are not filled, it means q and k are the
                 # prompt, and they have the same length.
