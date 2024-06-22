@@ -194,6 +194,11 @@ def yarn_get_mscale(scale: float = 1, mscale: float = 1) -> float:
     return 0.1 * mscale * math.log(scale) + 1.0
 
 
+import torch
+from torch import nn
+from typing import Any, Dict, Optional
+
+
 class DeepseekV2Attention(nn.Module):
     def __init__(
         self,
@@ -348,7 +353,15 @@ class DeepseekV2Attention(nn.Module):
                 f"Expected kv_cache.shape[1]={self.num_local_heads}, got {kv_cache.shape[1]}"
             )
 
-        attn_output = self.attn(q, k, v, kv_cache, attn_metadata)
+        try:
+            attn_output = self.attn(q, k, v, kv_cache, attn_metadata)
+        except Exception as e:
+            print(f"Error during attention computation: {e}")
+            print(
+                f"Shapes - q: {q.shape}, k: {k.shape}, v: {v.shape}, kv_cache: {kv_cache.shape if kv_cache is not None else 'None'}"
+            )
+            raise
+
         attn_output = attn_output.view(-1, self.num_local_heads, self.head_size)[
             ..., : self.v_head_dim
         ].reshape(-1, self.num_local_heads * self.v_head_dim)
