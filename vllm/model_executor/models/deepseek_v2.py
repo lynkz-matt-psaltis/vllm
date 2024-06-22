@@ -298,7 +298,7 @@ class DeepseekV2Attention(nn.Module):
         self,
         positions: torch.Tensor,
         hidden_states: torch.Tensor,
-        kv_cache: torch.Tensor,
+        kv_cache: Optional[torch.Tensor],
         attn_metadata: AttentionMetadata,
     ) -> torch.Tensor:
         # Ensure shapes are correct
@@ -342,8 +342,8 @@ class DeepseekV2Attention(nn.Module):
             v, [0, self.head_size - self.v_head_dim], value=0
         ).view(-1, self.num_local_heads * self.head_size)
 
-        # Ensure kv_cache shape is correct
-        if kv_cache.shape[1] != self.num_local_heads:
+        # Check kv_cache
+        if kv_cache is not None and kv_cache.shape[1] != self.num_local_heads:
             raise ValueError(
                 f"Expected kv_cache.shape[1]={self.num_local_heads}, got {kv_cache.shape[1]}"
             )
