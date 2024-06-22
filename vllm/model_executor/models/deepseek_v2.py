@@ -345,8 +345,10 @@ class DeepseekV2Attention(nn.Module):
         # Check kv_cache
         if kv_cache is None:
             kv_cache = torch.zeros(
-                (num_tokens, self.num_local_heads, self.head_size), device=k.device
-            )  # Initialize kv_cache with correct shape
+                (num_tokens, self.num_local_heads, self.head_size),
+                device=k.device,
+                dtype=q.dtype,
+            )
 
         if kv_cache.shape[1] != self.num_local_heads:
             raise ValueError(
@@ -358,7 +360,7 @@ class DeepseekV2Attention(nn.Module):
         except Exception as e:
             print(f"Error during attention computation: {e}")
             print(
-                f"Shapes - q: {q.shape}, k: {k.shape}, v: {v.shape}, kv_cache: {kv_cache.shape}"
+                f"Shapes - q: {q.shape}, k: {k.shape}, v: {v.shape}, kv_cache: {kv_cache.shape if kv_cache is not None else 'None'}"
             )
             raise
 
